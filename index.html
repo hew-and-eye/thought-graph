@@ -1,0 +1,344 @@
+<html>
+  <head>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Lato&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="ui-layer">
+      <div id="top-ribbon">
+        <div class="graph-manager">
+          <div id="current">
+            <div>Current graph</div>
+            <input class="current-graph-name" placeholder="Untitled" />
+            <button onclick="saveGraph()">
+              Save
+            </button>
+            <button id="delete-graph" onclick="deleteGraph(this)">
+              Delete
+            </button>
+          </div>
+          <div id="other-graphs">
+            <div>Other graphs</div>
+          </div>
+          <button id="create-new-graph" onclick="loadNewGraph()">
+            New graph
+          </button>
+        </div>
+      </div>
+    </div>
+    <div id="graph-wrapper">
+      <svg id="relationship-layer" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="context-menu"></div>
+    </div>
+    <script src="node-class-utils.js"></script>
+    <script src="context-menu-handlers.js"></script>
+    <script src="keyboard-handlers.js"></script>
+  </body>
+</html>
+<style>
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    min-width: 100%;
+    min-height: 100%;
+    pointer-events: none;
+    overflow: auto;
+    font-family: "Lato", sans-serif;
+  }
+</style>
+<script>
+  const DEFAULT_OFFSET = 100;
+  const SHIFT_SIZE = 50;
+  const mostRecentDoc = window.localStorage.getItem("lastOpenedGraph");
+  const currentDocEl = document.querySelector(".current-graph-name");
+  const hadSavedState = loadState(mostRecentDoc);
+  if (!hadSavedState) {
+    const { height, width } = document.body.getBoundingClientRect();
+    const renderData = {
+      top: height / 2 - DEFAULT_HEIGHT / 2 + "px",
+      left: width / 2 - DEFAULT_WIDTH / 2 + "px",
+      height: DEFAULT_HEIGHT + "px",
+      width: DEFAULT_WIDTH + "px",
+    };
+    const initialNode = addNode({ renderData })
+      .setNodeElement()
+      .setFocusedNode();
+  } else {
+    currentDocEl.value = mostRecentDoc;
+  }
+  setInterval(() => {
+    if (document.activeElement !== currentDocEl) {
+      saveState(currentDocEl.value);
+    }
+  }, 3000);
+
+  Object.keys(window.localStorage).forEach((key) => {
+    if (key.indexOf("graph_") === 0) {
+      const graphName = key.replace("graph_", "").replace(/_/g, " ");
+      if (graphName !== window.localStorage.getItem("lastOpenedGraph")) {
+        const button = document.createElement("button");
+        button.innerText = graphName;
+        button.onclick = () => {
+          window.localStorage.setItem("lastOpenedGraph", graphName);
+          window.location.reload();
+        };
+        document.getElementById("other-graphs").appendChild(button);
+      }
+    }
+  });
+  let isConfirmingDelete = false;
+  function deleteGraph(button) {
+    if (!isConfirmingDelete) {
+      isConfirmingDelete = true;
+      button.innerText = "confirm";
+      button.classList.add("has-confirmation-timeout");
+      setTimeout(() => {
+        isConfirmingDelete = false;
+        button.innerText = "delete";
+        button.classList.remove("has-confirmation-timeout");
+      }, 2000);
+    } else {
+      isConfirmingDelete = false;
+      const graphToDelete = "graph_" + currentDocEl.value.replace(/\s/g, "_");
+      window.localStorage.setItem("lastOpenedGraph", null);
+      window.localStorage.removeItem(graphToDelete);
+      window.location.reload();
+    }
+  }
+  function loadState(docName) {
+    let returnVal = false;
+    try {
+      const savedState = JSON.parse(
+        window.localStorage.getItem("graph_" + docName.replace(/\s/g, "_"))
+      );
+      Object.values(savedState).forEach((nodeData, index) => {
+        returnVal = true;
+        if (nodeData) {
+          const node = addNode(nodeData).setNodeElement();
+          if (!index) {
+            node.setFocusedNode();
+            contextMenu.reposition();
+          }
+        }
+      });
+      Object.values(state).forEach((node) => {
+        node.renderNode();
+      });
+    } catch (_) {}
+    return returnVal;
+  }
+  function saveState(docName) {
+    if (docName) {
+      const { focusedNode, editNode, ...savableState } = state;
+      window.localStorage.setItem(
+        "graph_" + docName.replace(/\s/g, "_"),
+        JSON.stringify(savableState)
+      );
+    }
+  }
+  function saveGraph() {
+    const graphName = currentDocEl.value;
+    if (graphName) {
+      saveState(graphName);
+      window.localStorage.setItem("lastOpenedGraph", graphName);
+    }
+  }
+  function loadNewGraph() {
+    window.localStorage.setItem("lastOpenedGraph", null);
+    window.location.reload();
+  }
+</script>
+<style>
+  .thought-node {
+    min-height: 100px;
+    min-width: 100px;
+    border: 3px solid #aaa;
+    border-radius: 6px;
+    position: absolute;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: all 0.3s;
+    pointer-events: auto;
+    box-sizing: border-box;
+    /* transform: translate(6px, 6px); */
+  }
+  .thought-node.focused {
+    border-color: black;
+    z-index: 1;
+  }
+  .thought-node.edit-mode {
+    border-style: dashed;
+  }
+  .thought-node .thought-content {
+    flex: 1;
+    height: 100%;
+    width: 100%;
+    text-align: center;
+    padding: 0 0.5em;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    outline: none;
+    background: white;
+  }
+  #graph-wrapper {
+    min-width: 4000px;
+    min-height: 4000px;
+    pointer-events: none;
+  }
+  .relationship,
+  .decorator {
+    transition: all 0.3s;
+    z-index: 10;
+  }
+  #relationship-layer {
+    pointer-events: auto;
+    position: absolute;
+    /* z-index: 2; */
+    min-width: 4000px;
+    min-height: 4000px;
+    width: 100%;
+    height: 100%;
+  }
+  .navigation-box {
+    position: absolute;
+    font-weight: bold;
+    background: #777;
+    border-radius: 6px;
+    color: white;
+    width: 1em;
+    height: 1em;
+    padding: 6px;
+    z-index: 100;
+  }
+  button {
+    background: white;
+    border: 2px solid #333;
+    border-radius: 4px;
+    padding: 0.3em 0.5em;
+    margin: 2px 4px;
+    font-weight: bold;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 2px 0px 0px rgba(0, 0, 0, 0.3);
+  }
+  .ui-layer {
+    position: fixed;
+    z-index: 10;
+    width: 100vw;
+    max-width: 100vw;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 1em;
+    pointer-events: auto;
+  }
+  .ui-layer input {
+    border-radius: 4px;
+    border: none;
+    padding: 0.3em 0.5em;
+    border: 2px solid #333;
+    box-shadow: 0 2px 0px 0px rgba(0, 0, 0, 0.3);
+    font-family: "Lato", sans-serif;
+  }
+  button.primary {
+    background-color: #3d8;
+  }
+  button:hover {
+    box-shadow: none;
+  }
+  .graph-manager {
+    display: flex;
+  }
+  #other-graphs {
+    border-left: 2px solid #333;
+    margin-left: 1em;
+    padding-left: 1em;
+    flex: 1;
+  }
+  #create-new-graph {
+    /* justify-self: flex-end; */
+    margin-right: 4em;
+  }
+  #delete-graph {
+    min-width: 90px;
+  }
+  button {
+    position: relative;
+  }
+  button::before,
+  button::after {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+  }
+  button::after {
+    width: 0;
+    background-color: #f66;
+  }
+  button.has-confirmation-timeout {
+    background: transparent;
+    outline: none;
+  }
+  button.has-confirmation-timeout::before {
+    content: "";
+    background-color: white;
+  }
+  button.has-confirmation-timeout::after {
+    content: "";
+    animation: shrink-horizontal 2s linear 1;
+  }
+  @keyframes shrink-horizontal {
+    5% {
+      width: 100%;
+    }
+    from,
+    to {
+      width: 0;
+    }
+  }
+  #context-menu {
+    position: absolute;
+    border-radius: 6px;
+    /* width: 120px; */
+    padding: 4px 8px;
+    background: rgba(220, 220, 220, 0.7);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 20;
+    box-shadow: 0 2px 0px 0px rgba(0, 0, 0, 0.3);
+    transition: top 0.5s, left 0.5s;
+    font-size: 0.8rem;
+    min-width: 130px;
+  }
+  #context-menu.minimized {
+    min-width: 0;
+    height: 2em;
+    width: 1.5em;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transform: translate(-5px, 25px);
+  }
+  #context-menu .key-icon {
+    display: inline-block;
+    background: white;
+    border: 2px solid #aaa;
+    box-shadow: 0 2px 0px 0px rgba(0, 0, 0, 0.3);
+    text-transform: uppercase;
+    border-radius: 6px;
+    height: 1.5em;
+    min-width: 1.5em;
+    padding: 0 4px;
+    box-sizing: border-box;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+  }
+</style>
